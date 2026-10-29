@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en" w-tid="1">
+<head w-tid="3">
+    
+
+<link rel="stylesheet" href="https://api.websim.com/fonts.css?v=8d02fbfc095f1f7bb20467f7db9920acfb277d54">
+<style class="websim-injected websim-ios-mobile-fix">
+/* iOS zoom prevention and overscroll behavior - injected by WebSim */
+html, body {
+  touch-action: pan-x pan-y;
+  -webkit-text-size-adjust: 100%;
+  overscroll-behavior: none;
+  overscroll-behavior-y: none;
+}
+input, textarea, select {
+  font-size: max(1rem, 16px) !important;
+}
+</style>
+<script class="websim-injected">__WEBSIM_DATA__={"home":false,"hostOrigin":"https://websim.com","apiOrigin":"https://api.websim.com","isTopLevelFrame":false,"project_id":"qygxeolu4t629kx0tmwz","preview":true,"activityCaptureMode":"on","route":{"type":"project","id":"qygxeolu4t629kx0tmwz"},"baseUrl":"https://websim.com/p/qygxeolu4t629kx0tmwz"}</script>
+<script class="websim-injected" src="https://api.websim.com/dist/index.js?v=8d02fbfc095f1f7bb20467f7db9920acfb277d54"></script>
+<meta charset="UTF-8" w-tid="5"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" w-tid="7"/>
+    <title w-tid="9">Clingstone OS</title>
+    <link rel="icon" href="data:," w-tid="11"/>
+    <script type="importmap" w-tid="13">
+    {
+      "imports": {
+        "lucide": "https://esm.sh/lucide"
+      }
+    }
+    </script>
+    <link rel="stylesheet" href="style.css" w-tid="15"/>
+    <link rel="stylesheet" href="apps.css" w-tid="17"/>
+</head>
+<body w-tid="19">
+    <div id="os-container" w-tid="21">
+        <div id="top-bar" w-tid="23">
+            <div class="top-bar-left" w-tid="25">
+                <div class="top-bar-item" id="start-menu-trigger" w-tid="27">
+                    <img src="logo.png" alt="Peach Pit" class="mini-logo" w-tid="29"/>
+                    <strong w-tid="31">Clingstone</strong>
+                </div>
+                <!-- open windows (icons + names) -->
+                <div id="open-windows" class="top-bar-item" style="gap:6px; overflow:hidden;" w-tid="33"></div>
+                <button type="button" class="top-bar-item active-app-name" id="active-app-display" aria-label="Open app switcher" title="Open apps" w-tid="35">Apps</button>
+            </div>
+            <div class="top-bar-right" w-tid="37">
+                <button type="button" class="top-bar-item status-trigger" id="wifi-status" title="Wi-Fi" aria-label="Wi-Fi status" w-tid="39"><i data-lucide="wifi" size="14" w-tid="41"></i></button>
+                <button type="button" class="top-bar-item status-trigger" id="battery-status" title="Battery" aria-label="Battery status" w-tid="43"><i data-lucide="battery" size="14" w-tid="45"></i></button>
+                <button type="button" class="top-bar-item" id="clock" title="Open calendar" w-tid="47">00:00</button>
+            </div>
+        </div>
+        <div id="topbar-popover" class="topbar-popover" hidden w-tid="49"></div>
+
+        <div id="desktop" w-tid="51">
+            <div id="desktop-icons" w-tid="53"></div>
+            <div id="window-layer" w-tid="55"></div>
+        </div>
+        
+        <div id="dock-container" w-tid="57">
+            <div id="dock" w-tid="59">
+                <div id="dock-apps" w-tid="61"></div>
+                <div class="dock-separator" w-tid="63"></div>
+                <div class="dock-item trash" data-app="files" title="Trash" w-tid="65">
+                    <i data-lucide="trash-2" w-tid="67"></i>
+                </div>
+            </div>
+        </div>
+
+        <div id="start-menu" class="hidden" w-tid="69">
+            <div class="start-menu-header" w-tid="71">
+                <img src="logo.png" alt="Logo" class="mini-logo" w-tid="73"/>
+                <span w-tid="75">Clingstone OS</span>
+            </div>
+            <div class="start-menu-items" w-tid="77">
+                <div class="start-item" data-app="about" w-tid="79">About This System</div>
+                <div class="start-item" data-app="settings" w-tid="81">Control Panel</div>
+                <div class="start-item" data-app="shell" w-tid="83">StoneShell</div>
+                <div class="start-item" data-app="calculator" w-tid="85">PocketCalc</div>
+                <div class="start-item" data-app="calendar" w-tid="87">Daybook</div>
+                <div class="start-item" data-app="sketch" w-tid="89">Sketchpad</div>
+                <hr w-tid="91"/>
+                <div class="start-item" id="shutdown-btn" w-tid="93">Shut Down...</div>
+            </div>
+        </div>
+    </div>
+
+    <audio id="sound-startup" src="startup.mp3" w-tid="95"></audio>
+    <audio id="sound-click" src="click.mp3" w-tid="97"></audio>
+
+    <script type="module" src="app.js" w-tid="99"></script>
+</body>
+</html>
