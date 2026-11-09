@@ -1,4 +1,9 @@
 import { createIcons, icons } from 'lucide';
+import { setupSurveys } from './surveys.js';
+import { setupInvestmentSimulator } from './investing.js';
+import { setupPlinko } from './plinko.js';
+import { buildSyntheticWeather } from './weather.js';
+import { setupPlaygame } from './playgame.js';
 
 class ClingstoneOS {
     constructor() {
@@ -38,7 +43,10 @@ class ClingstoneOS {
         };
         this.calendarEvents = {};
         this.networkEnabled = true;
-        this.storeState = { balance: 50000, owned: [], installed: [] };
+        this.storeState = { balance: 0, owned: [], installed: [] };
+        this.peaState = { earnedCents: 0, workUnits: 0, objectiveSeen: false };
+        this.investmentState = { unlocked: false, stocks: null, positions: {}, realized: 0, upgrades: {} };
+        this.playgameState = { owned: [] };
         this.audioContext = null;
         this.audioFilters = new WeakMap();
         this.loadState();
@@ -53,7 +61,8 @@ class ClingstoneOS {
             settings: { name: 'Settings', icon: 'Settings', content: (win) => this.getSettingsContent(win) },
             calculator: { name: 'PocketCalc', icon: 'Calculator', content: (win) => this.getCalculatorContent(win) },
             calendar: { name: 'Daybook', icon: 'CalendarDays', content: (win) => this.getCalendarContent(win) },
-            sketch: { name: 'Sketchpad', icon: 'Paintbrush', content: (win) => this.getSketchContent(win) }
+            sketch: { name: 'Sketchpad', icon: 'Paintbrush', content: (win) => this.getSketchContent(win) },
+            weather: { name: 'Weather', icon: 'CloudSun', content: () => buildSyntheticWeather() }
         };
         const applications = this.getNode(['Applications']);
         if (applications?.items) {
@@ -61,7 +70,8 @@ class ClingstoneOS {
                 'Browser.app': { type: 'app', app: 'browser' },
                 'PocketCalc.app': { type: 'app', app: 'calculator' },
                 'Daybook.app': { type: 'app', app: 'calendar' },
-                'Sketchpad.app': { type: 'app', app: 'sketch' }
+                'Sketchpad.app': { type: 'app', app: 'sketch' },
+                'Weather.app': { type: 'app', app: 'weather' }
             });
             this.saveState();
         }
@@ -75,7 +85,12 @@ class ClingstoneOS {
             if (saved?.fs?.root?.items) this.fs = saved.fs;
             if (saved?.settings) this.settings = { ...this.settings, ...saved.settings };
             if (saved?.calendarEvents && typeof saved.calendarEvents === 'object') this.calendarEvents = saved.calendarEvents;
-            if (saved?.storeState && Number.isFinite(saved.storeState.balance) && Array.isArray(saved.storeState.owned)) this.storeState = { balance: saved.storeState.balance, owned: saved.storeState.owned, installed: Array.isArray(saved.storeState.installed) ? saved.storeState.installed : [] };
+            if (saved?.storeState && Number.isFinite(saved.storeState.balance) && Array.isArray(saved.storeState.owned)) {
+                this.storeState = { balance: saved.storeState.balance === 50000 ? 0 : saved.storeState.balance, owned: saved.storeState.owned, installed: Array.isArray(saved.storeState.installed) ? saved.storeState.installed : [] };
+            }
+            if (saved?.peaState && Number.isFinite(saved.peaState.earnedCents)) this.peaState = { earnedCents: saved.peaState.earnedCents, workUnits: Number.isFinite(saved.peaState.workUnits) ? saved.peaState.workUnits : 0, objectiveSeen: saved.peaState.objectiveSeen === true };
+            if (saved?.investmentState && typeof saved.investmentState === 'object') this.investmentState = { ...this.investmentState, ...saved.investmentState, positions: saved.investmentState.positions || {}, upgrades: saved.investmentState.upgrades || {} };
+            if (saved?.playgameState && Array.isArray(saved.playgameState.owned)) this.playgameState = { owned: saved.playgameState.owned, fishing: saved.playgameState.fishing || { fish: 0, coins: 0, catches: 0, rod: 1, net: 0 } };
         } catch (error) {
             console.warn('Could not restore Clingstone state:', error);
         }
@@ -91,7 +106,7 @@ class ClingstoneOS {
 
     saveState() {
         try {
-            localStorage.setItem('clingstone-state', JSON.stringify({ fs: this.fs, settings: this.settings, calendarEvents: this.calendarEvents, storeState: this.storeState }));
+            localStorage.setItem('clingstone-state', JSON.stringify({ fs: this.fs, settings: this.settings, calendarEvents: this.calendarEvents, storeState: this.storeState, peaState: this.peaState, investmentState: this.investmentState, playgameState: this.playgameState }));
         } catch (error) {
             console.warn('Could not save Clingstone state:', error);
         }
@@ -418,6 +433,7 @@ class ClingstoneOS {
     renderDesktopIcons() {
         const desktop = document.getElementById('desktop-icons');
         const icons = [
+            { name: 'Weather', icon: 'CloudSun', app: 'weather' },
             { name: 'StoneDrive', icon: 'HardDrive', app: 'files', args: { path: ['StoneDrive'] } },
             { name: 'Readme', icon: 'FileText', app: 'pad', args: { path: ['Documents'], fileName: 'Readme.txt', content: 'Double click folders to browse.\n\nCreate files in the Navigator and the File menu, then read them in StoneShell with `cat`. Everything shares one file system.\n\nTry the StoneShell: type `help` and press Enter.' } }
         ];
@@ -463,6 +479,8 @@ class ClingstoneOS {
         if (key === 'viewer') { w = 520; h = 400; }
         if (key === 'settings') { h = 420; }
         if (key === 'calculator') { w = 330; h = 450; }
+        if (key === 'browser') { w = 860; h = 620; }
+        if (key === 'weather') { w = 550; h = 570; }
         if (key === 'calendar') { w = 440; h = 500; }
         if (key === 'sketch') { w = 600; h = 440; }
         win.style.width = w + 'px';
@@ -528,6 +546,9 @@ class ClingstoneOS {
         const index = this.windows.findIndex(w => w.id === id);
         if (index > -1) {
             const wasActive = (this.windows[index].element === this.activeWindow);
+            this.windows[index].element.peaCleanup?.();
+            this.windows[index].element.investCleanup?.();
+            this.windows[index].element.plinkoCleanup?.();
             this.windows[index].element.remove();
             this.windows.splice(index, 1);
             if (wasActive) {
@@ -1400,9 +1421,124 @@ class ClingstoneOS {
         return wrap;
     }
 
+    setupPeaProcessing(wrap, win) {
+        const cpuParts = {
+            'cpu-p4-24': ['Pentium 4 Northwood 2.4 GHz', 1.25],
+            'cpu-p4-32': ['Pentium 4 HT 3.2 GHz', 1.65],
+            'cpu-athlon64': ['Athlon 64 3200+', 1.85],
+            'cpu-pd820': ['Pentium D 820', 2.05],
+            'cpu-core2e6400': ['Core 2 Duo E6400', 2.7]
+        };
+        const gpuParts = {
+            'gpu-fx5200': ['GeForce FX 5200 128MB', 0.75],
+            'gpu-r9600': ['Radeon 9600 Pro 256MB', 0.95],
+            'gpu-6600gt': ['GeForce 6600 GT 128MB', 1.15],
+            'gpu-x1600': ['Radeon X1600 XT 256MB', 1.3],
+            'gpu-7600gt': ['GeForce 7600 GT 256MB', 1.55],
+            'gpu-8800gts': ['GeForce 8800 GTS 320MB', 2.1]
+        };
+        const cpuName = wrap.querySelector('.pea-cpu');
+        const cpuScore = wrap.querySelector('.pea-cpu-score');
+        const gpuName = wrap.querySelector('.pea-gpu');
+        const gpuScore = wrap.querySelector('.pea-gpu-score');
+        const button = wrap.querySelector('.pea-start');
+        const status = wrap.querySelector('.pea-status');
+        const live = wrap.querySelector('.pea-live');
+        const bar = wrap.querySelector('.pea-progress-fill');
+        const progress = wrap.querySelector('.pea-progress-track');
+        const workLabel = wrap.querySelector('.pea-work-label');
+        const rateLabel = wrap.querySelector('.pea-rate');
+        const peasLabel = wrap.querySelector('.pea-peas');
+        const unitsLabel = wrap.querySelector('.pea-units');
+        const sessionLabel = wrap.querySelector('.pea-session');
+        const earningsLabel = wrap.querySelector('.pea-earnings');
+        const formatMoney = amount => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
+        let running = false, timer = null, sessionMs = 0, unitProgress = 0;
+        let lastTime = 0, saveUnits = 0;
+
+        const hardware = () => {
+            const cpuId = this.storeState.installed.find(id => id.startsWith('cpu-'));
+            const gpuId = this.storeState.installed.find(id => id.startsWith('gpu-'));
+            const cpu = cpuParts[cpuId] || ['StoneProcessor X2', 2.2];
+            const gpu = gpuParts[gpuId] || ['Clingstone Integrated Graphics', 1.0];
+            return { cpu, gpu };
+        };
+        const render = () => {
+            const { cpu, gpu } = hardware();
+            cpuName.textContent = cpu[0]; cpuScore.textContent = 'Pea compute rating · ' + cpu[1].toFixed(1);
+            gpuName.textContent = gpu[0]; gpuScore.textContent = 'Pea compute rating · ' + gpu[1].toFixed(1);
+            unitsLabel.textContent = this.peaState.workUnits.toLocaleString();
+            peasLabel.textContent = (this.peaState.workUnits * 1000000).toLocaleString();
+            earningsLabel.textContent = formatMoney(this.peaState.earnedCents / 100);
+            const totalSeconds = Math.floor(sessionMs / 1000);
+            const hours = Math.floor(totalSeconds / 3600);
+            const minutes = Math.floor(totalSeconds % 3600 / 60);
+            const seconds = totalSeconds % 60;
+            sessionLabel.textContent = hours ? String(hours).padStart(2, '0') + ':' + String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0') : String(minutes).padStart(2, '0') + ':' + String(seconds).padStart(2, '0');
+            rateLabel.textContent = '+' + formatMoney(this.peaRewardCents(cpu, gpu) / 100) + ' per unit';
+            const pct = running ? Math.min(100, Math.floor(unitProgress * 100)) : 0;
+            bar.style.width = pct + '%'; progress.setAttribute('aria-valuenow', String(pct));
+        };
+        const stop = () => {
+            running = false;
+            if (timer) clearInterval(timer);
+            timer = null;
+            button.textContent = 'Start processing';
+            status.textContent = 'Paused';
+            live.classList.remove('is-working');
+            live.innerHTML = '<i></i> ready';
+            workLabel.textContent = 'Ready for a work unit';
+            unitProgress = 0;
+            this.saveState();
+            render();
+        };
+        const tick = () => {
+            if (!win.isConnected || win.style.display === 'none') { stop(); return; }
+            const now = Date.now();
+            const delta = Math.min(1000, Math.max(0, now - lastTime));
+            lastTime = now;
+            sessionMs += delta;
+            const { cpu, gpu } = hardware();
+            const duration = Math.max(3500, 10000 / Math.sqrt(cpu[1] * gpu[1]));
+            unitProgress += delta / duration;
+            let unitCompleted = false;
+            if (unitProgress >= 1) {
+                unitProgress -= 1;
+                this.peaState.workUnits += 1;
+                const rewardCents = this.peaRewardCents(cpu, gpu);
+                this.peaState.earnedCents += rewardCents;
+                this.storeState.balance += rewardCents / 100;
+                saveUnits++;
+                unitCompleted = true;
+                workLabel.textContent = 'A million peas counted!';
+            } else workLabel.textContent = 'Counting a patch of peas…';
+            if (unitCompleted || saveUnits >= 10) { this.saveState(); saveUnits = 0; }
+            render();
+        };
+        button.addEventListener('click', () => {
+            if (running) { stop(); return; }
+            running = true;
+            lastTime = Date.now();
+            button.textContent = 'Pause processing';
+            status.textContent = 'Processing';
+            live.classList.add('is-working');
+            live.innerHTML = '<i></i> working';
+            workLabel.textContent = 'Processing local simulation…';
+            timer = setInterval(tick, 200);
+            render();
+        });
+        win.peaCleanup = () => { if (running) stop(); };
+        render();
+    }
+
+    peaRewardCents(cpu, gpu) {
+        const hardwareMultiplier = (cpu[1] / 2.2) * (gpu[1] / 1.0);
+        return Math.max(20, Math.round(20 * Math.pow(hardwareMultiplier, 2.5)));
+    }
+
     /* ---------------- App: Browser ---------------- */
 
-    getBrowserContent() {
+    getBrowserContent(win) {
         const wrap = document.createElement('div');
         wrap.className = 'image-browser';
         wrap.innerHTML = `
@@ -1421,6 +1557,31 @@ class ClingstoneOS {
                             <span class="browser-shortcut-copy"><strong>pBay</strong><small>System parts marketplace</small></span>
                             <i class="browser-shortcut-arrow" data-lucide="arrow-up-right"></i>
                         </button>
+                        <button type="button" class="browser-shortcut pea-shortcut" id="browser-pea-shortcut">
+                            <span class="browser-shortcut-icon pea-mark">pea</span>
+                            <span class="browser-shortcut-copy"><strong>PeaProcessing</strong><small>Distributed compute pool</small></span>
+                            <i class="browser-shortcut-arrow" data-lucide="arrow-up-right"></i>
+                        </button>
+                        <button type="button" class="browser-shortcut survey-shortcut" id="browser-surveys-shortcut">
+                            <span class="browser-shortcut-icon survey-mark">P</span>
+                            <span class="browser-shortcut-copy"><strong>Polysmart</strong><small>Think Big, give Big Data</small></span>
+                            <i class="browser-shortcut-arrow" data-lucide="arrow-up-right"></i>
+                        </button>
+                        <button type="button" class="browser-shortcut invest-shortcut" id="browser-invest-shortcut">
+                            <span class="browser-shortcut-icon invest-mark">↗</span>
+                            <span class="browser-shortcut-copy"><strong>Profit&amp;Win</strong><small>Market simulator · $100 to unlock</small></span>
+                            <i class="browser-shortcut-arrow" data-lucide="arrow-up-right"></i>
+                        </button>
+                        <button type="button" class="browser-shortcut plinko-shortcut" id="browser-plinko-shortcut">
+                            <span class="browser-shortcut-icon plinko-mark">●</span>
+                            <span class="browser-shortcut-copy"><strong>Plinko</strong><small>Don't be stupid.</small></span>
+                            <i class="browser-shortcut-arrow" data-lucide="arrow-up-right"></i>
+                        </button>
+                        <button type="button" class="browser-shortcut playgame-shortcut" id="browser-playgame-shortcut">
+                            <span class="browser-shortcut-icon playgame-mark">▸</span>
+                            <span class="browser-shortcut-copy"><strong>The Playgame</strong><small>Premium games · $100+</small></span>
+                            <i class="browser-shortcut-arrow" data-lucide="arrow-up-right"></i>
+                        </button>
                     </div>
                 </div>
             </section>
@@ -1435,11 +1596,128 @@ class ClingstoneOS {
                 <div class="browser-results" aria-live="polite"></div>
                 <button type="button" class="browser-more" hidden>Load more images</button>
             </section>
+            <section class="pea-page" hidden>
+                <header class="pea-header">
+                    <button type="button" class="browser-home-button pea-home-button" aria-label="Back to browser home" title="Home"><i data-lucide="house"></i></button>
+                    <div class="pea-brand"><span class="pea-mark">pea</span><strong>PeaProcessing</strong></div>
+                    <span class="pea-live"><i></i> ready</span>
+                </header>
+                <aside class="pea-objective" hidden>
+                    <span class="pea-objective-pod" aria-hidden="true">🫛</span>
+                    <div class="pea-objective-copy"><span>YOUR VERY IMPORTANT ASSIGNMENT</span><strong>Count every pea in the world.</strong><small>From garden rows to freezer aisles, no pea left behind. Each finished work unit adds a million peas to our grand tally.</small></div>
+                    <button type="button" class="pea-objective-dismiss">I’m on it</button>
+                </aside>
+                <div class="pea-body">
+                    <div class="pea-hardware">
+                        <div class="pea-hardware-card"><span>PROCESSOR</span><strong class="pea-cpu">StoneProcessor X2</strong><small class="pea-cpu-score"></small></div>
+                        <div class="pea-hardware-card"><span>GRAPHICS</span><strong class="pea-gpu">Clingstone Integrated Graphics</strong><small class="pea-gpu-score"></small></div>
+                    </div>
+                    <div class="pea-work-card">
+                        <div class="pea-work-heading"><div><span class="pea-eyebrow">THE WORLD PEA CENSUS</span><h2>One tiny pea at a time</h2></div><span class="pea-status">Paused</span></div>
+                        <div class="pea-progress-track" role="progressbar" aria-label="Current work unit progress" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="pea-progress-fill"></div></div>
+                        <div class="pea-progress-caption"><span class="pea-work-label">Ready for a work unit</span><span class="pea-rate">$0.01 per unit</span></div>
+                        <button type="button" class="pea-start">Start processing</button>
+                    </div>
+                    <div class="pea-stats">
+                        <div><span>VIRTUAL PEAS COUNTED</span><strong class="pea-peas">0</strong></div>
+                        <div><span>WORK UNITS</span><strong class="pea-units">0</strong></div>
+                        <div><span>SESSION TIME</span><strong class="pea-session">00:00</strong></div>
+                        <div><span>ALL-TIME EARNINGS</span><strong class="pea-earnings">$0.00</strong></div>
+                    </div>
+                </div>
+            </section>
+            <section class="browser-surveys-page" hidden>
+                <header class="survey-header">
+                    <button type="button" class="browser-home-button survey-home-button" aria-label="Back to browser home" title="Home"><i data-lucide="house"></i></button>
+                    <div class="survey-brand"><span class="survey-mark">P</span><span class="survey-brand-copy"><strong>Polysmart</strong><small>Think Big, give Big Data</small></span></div>
+                    <span class="survey-wallet">Wallet <b class="survey-wallet-balance">$0.00</b></span>
+                </header>
+                <div class="survey-lobby">
+                    <div class="survey-intro"><div class="survey-intro-copy"><span>POLYSMART · TRIVIA &amp; INSIGHTS</span><h2>Think Big, give Big Data</h2><p>20 trivia questions. Answer any 15 to qualify; your score is just for bragging rights.</p></div><div class="survey-data-motif" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+                    <div class="survey-difficulty" role="group" aria-label="Survey difficulty">
+                        <button type="button" data-level="easy">Easy <small>$8</small></button>
+                        <button type="button" data-level="regular" class="selected">Regular <small>$20</small></button>
+                        <button type="button" data-level="hard">Hard <small>$35</small></button>
+                    </div>
+                    <div class="survey-grid" aria-label="Available surveys"></div>
+                </div>
+                <div class="survey-session" hidden>
+                    <div class="survey-session-top"><button type="button" class="survey-back">← All surveys</button><span class="survey-session-meta"></span></div>
+                    <div class="survey-progress"><div class="survey-progress-fill"></div></div>
+                    <div class="survey-question-count"></div>
+                    <div class="survey-question-card"><span class="survey-topic"></span><h2 class="survey-question"></h2><div class="survey-options"></div></div>
+                    <div class="survey-controls"><button type="button" class="survey-prev">Previous</button><button type="button" class="survey-next">Next question</button></div>
+                    <div class="survey-submit-row"><span class="survey-qualify-note"></span><button type="button" class="survey-submit" disabled>Answer 15 to qualify</button></div>
+                </div>
+                <div class="survey-result" hidden><span class="survey-result-stamp">✓</span><h2>Survey submitted!</h2><strong class="survey-result-payout"></strong><p class="survey-result-score"></p><button type="button" class="survey-result-back">More surveys</button></div>
+            </section>
+            <section class="browser-invest-page" hidden>
+                <header class="invest-header">
+                    <button type="button" class="browser-home-button invest-home-button" aria-label="Back to browser home" title="Home"><i data-lucide="house"></i></button>
+                    <div class="invest-brand"><span class="invest-brand-mark">P&amp;W</span><strong>Profit&amp;Win</strong><small>Clingstone market simulator</small></div>
+                    <span class="invest-wallet">Wallet <b class="invest-header-balance">$0.00</b></span>
+                </header>
+                <section class="invest-gate">
+                    <span class="invest-gate-icon">↗</span><span class="invest-eyebrow">THE MARKET IS YOURS</span>
+                    <h2>Make your money move.</h2><p>Unlock the broker to trade five fictional companies. Buy low, sell high—or watch a bad call cost you.</p>
+                    <div class="invest-entry"><span>One-time broker access</span><strong>$100.00</strong></div>
+                    <button type="button" class="invest-unlock">Unlock Profit&amp;Win · $100</button>
+                    <small class="invest-gate-note"></small>
+                </section>
+                <section class="invest-dashboard" hidden>
+                    <div class="invest-summary">
+                        <div><span>WALLET</span><strong class="invest-cash">$0.00</strong></div>
+                        <div><span>PORTFOLIO</span><strong class="invest-value">$0.00</strong></div>
+                        <div><span>OPEN P&amp;L</span><strong class="invest-pnl">$0.00</strong></div>
+                        <div class="invest-tick-box"><span>MARKET TICK</span><strong class="invest-countdown">3s</strong></div>
+                    </div>
+                    <div class="invest-market-heading"><div><span>FIVE COMPANIES · LIVE PRICES</span><h2>The ticker board</h2></div><span class="invest-tick-indicator"><i></i> LIVE · 3 SEC TICKS</span></div>
+                    <div class="invest-stock-grid"></div>
+                    <div class="invest-upgrades">
+                        <div><span class="invest-eyebrow">BROKER TOOLS</span><h3>Upgrade your desk</h3><p>Small edge, no sure bets. The market can still surprise you.</p></div>
+                        <article class="invest-upgrade-card"><div><strong>Trend Lens</strong><small>Shows 5-tick momentum on every stock.</small></div><b class="invest-upgrade-price">$75</b><button type="button" class="invest-upgrade-button">Buy upgrade</button></article>
+                    </div>
+                    <div class="invest-message" aria-live="polite"></div>
+                </section>
+            </section>
+            <section class="browser-plinko-page" hidden>
+                <header class="plinko-header">
+                    <button type="button" class="browser-home-button plinko-home-button" aria-label="Back to browser home" title="Home"><i data-lucide="house"></i></button>
+                    <div class="plinko-brand"><span class="plinko-brand-mark">●</span><span><strong>Plinko</strong><small>The daily drop</small></span></div>
+                    <span class="plinko-wallet">Wallet <b class="plinko-balance">$0.00</b></span>
+                </header>
+                <div class="plinko-content">
+                    <div class="plinko-intro"><span>ONE BUCK · ONE BALL · PURE CHANCE</span><h2>Don’t be stupid.</h2><p>Every drop costs $1. The pegs are fair; the math isn’t. Over time, the board keeps its share.</p></div>
+                    <div class="plinko-machine">
+                        <canvas class="plinko-board" width="520" height="245" aria-label="Eight-row Plinko board with a falling ball"></canvas>
+                        <div class="plinko-buckets" aria-label="Payout slots"></div>
+                    </div>
+                    <div class="plinko-controls"><button type="button" class="plinko-drop">Drop a ball · $1</button><span class="plinko-result" aria-live="polite">Pick a slot. Any slot.</span></div>
+                </div>
+            </section>
+            <section class="browser-playgame-page" hidden>
+                <header class="playgame-header">
+                    <button type="button" class="browser-home-button playgame-home-button" aria-label="Back to browser home" title="Home"><i data-lucide="house"></i></button>
+                    <div class="playgame-brand"><span class="playgame-logo">▸</span><span><strong>The Playgame</strong><small>FREE GAMES INSIDE</small></span></div>
+                    <span class="playgame-wallet">Wallet <b class="playgame-balance">$0.00</b></span>
+                </header>
+                <div class="playgame-shell">
+                    <section class="playgame-store-view">
+                        <div class="playgame-hero"><div><span class="playgame-kicker">THE GAME SHELF</span><h1>Choose your next<br>little adventure.</h1><p>Two free games, ready when you are.</p></div><div class="playgame-art" aria-hidden="true"><span>▶</span><i></i><i></i><i></i><i></i><i></i><i></i></div></div>
+                        <div class="playgame-nav"><button type="button" class="playgame-tab active" data-view="store">Store</button><button type="button" class="playgame-tab" data-view="library">My library <span class="playgame-owned-count">0</span></button><span class="playgame-message" aria-live="polite"></span></div>
+                        <div class="playgame-catalog"></div>
+                    </section>
+                    <section class="playgame-library-view" hidden>
+                        <div class="playgame-library-heading"><span class="playgame-kicker">YOUR COLLECTION</span><h2>My library</h2></div>
+                        <div class="playgame-library-list"></div>
+                    </section>
+                </div>
+            </section>
             <section class="browser-sbay-page" hidden>
                 <header class="sbay-header">
                     <button type="button" class="browser-home-button sbay-home-button" aria-label="Back to browser home" title="Home"><i data-lucide="house"></i></button>
                     <div class="sbay-brand"><span class="sbay-logo">pBay</span><span>System parts</span></div>
-                    <div class="sbay-wallet"><small>Wallet balance</small><strong class="sbay-balance">$50,000</strong></div>
+                    <div class="sbay-wallet"><small>Wallet balance</small><strong class="sbay-balance">$0.00</strong></div>
                 </header>
                 <div class="sbay-toolbar">
                     <input class="sbay-search" type="search" placeholder="Search parts…" aria-label="Search parts">
@@ -1452,6 +1730,11 @@ class ClingstoneOS {
         `;
         const homepage = wrap.querySelector('.browser-homepage');
         const imagePage = wrap.querySelector('.browser-image-page');
+        const peaPage = wrap.querySelector('.pea-page');
+        const surveysPage = wrap.querySelector('.browser-surveys-page');
+        const investmentPage = wrap.querySelector('.browser-invest-page');
+        const plinkoPage = wrap.querySelector('.browser-plinko-page');
+        const playgamePage = wrap.querySelector('.browser-playgame-page');
         const homeSearch = wrap.querySelector('.browser-home-search');
         const homeQuery = wrap.querySelector('.browser-home-query');
         const form = wrap.querySelector('.browser-searchbar');
@@ -1477,9 +1760,39 @@ class ClingstoneOS {
             search(query);
         };
         homeSearch.addEventListener('submit', (event) => { event.preventDefault(); beginImageSearch(homeQuery.value); });
-        wrap.querySelector('#browser-sbay-shortcut').addEventListener('click', () => { homepage.hidden = true; imagePage.hidden = true; storePage.hidden = false; renderStore(); });
+        wrap.querySelector('#browser-sbay-shortcut').addEventListener('click', () => { homepage.hidden = true; imagePage.hidden = true; peaPage.hidden = true; storePage.hidden = false; renderStore(); });
+        wrap.querySelector('#browser-pea-shortcut').addEventListener('click', () => {
+            homepage.hidden = true; imagePage.hidden = true; storePage.hidden = true; surveysPage.hidden = true; peaPage.hidden = false;
+            const objective = wrap.querySelector('.pea-objective');
+            objective.hidden = this.peaState.objectiveSeen;
+        });
+        wrap.querySelector('#browser-surveys-shortcut').addEventListener('click', () => {
+            homepage.hidden = true; imagePage.hidden = true; storePage.hidden = true; peaPage.hidden = true; investmentPage.hidden = true; surveysPage.hidden = false;
+        });
+        wrap.querySelector('#browser-invest-shortcut').addEventListener('click', () => {
+            homepage.hidden = true; imagePage.hidden = true; storePage.hidden = true; peaPage.hidden = true; surveysPage.hidden = true; plinkoPage.hidden = true; investmentPage.hidden = false;
+            openInvestment();
+        });
+        wrap.querySelector('#browser-plinko-shortcut').addEventListener('click', () => {
+            homepage.hidden = true; imagePage.hidden = true; storePage.hidden = true; peaPage.hidden = true; surveysPage.hidden = true; investmentPage.hidden = true; plinkoPage.hidden = false; playgamePage.hidden = true;
+            openPlinko();
+        });
+        wrap.querySelector('#browser-playgame-shortcut').addEventListener('click', () => {
+            homepage.hidden = true; imagePage.hidden = true; storePage.hidden = true; peaPage.hidden = true; surveysPage.hidden = true; investmentPage.hidden = true; plinkoPage.hidden = true; playgamePage.hidden = false;
+        });
         wrap.querySelector('.browser-home-button').addEventListener('click', () => { imagePage.hidden = true; homepage.hidden = false; });
         wrap.querySelector('.sbay-home-button').addEventListener('click', () => { storePage.hidden = true; homepage.hidden = false; });
+        wrap.querySelector('.pea-home-button').addEventListener('click', () => { peaPage.hidden = true; homepage.hidden = false; });
+        this.setupPeaProcessing(wrap, win);
+        setupSurveys(wrap, this);
+        const openInvestment = setupInvestmentSimulator(wrap, this, win);
+        const openPlinko = setupPlinko(wrap, this, win);
+        setupPlaygame(wrap, this);
+        wrap.querySelector('.pea-objective-dismiss').addEventListener('click', () => {
+            wrap.querySelector('.pea-objective').hidden = true;
+            this.peaState.objectiveSeen = true;
+            this.saveState();
+        });
         const results = wrap.querySelector('.browser-results');
         const status = wrap.querySelector('.browser-status');
         const more = wrap.querySelector('.browser-more');
@@ -1512,7 +1825,7 @@ class ClingstoneOS {
             {id:'ethernet-pci',name:'10/100 PCI Internet Card',category:'Network',price:14,icon:'network',desc:'RJ-45 · Wake-on-LAN'},
         ];
         let onlyOwnedParts = false;
-        const money = (amount) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount);
+        const money = (amount) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
         const renderStore = (notice = '') => {
             const query = storeSearch.value.trim().toLowerCase();
             const category = storeCategory.value;
